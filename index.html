@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flex Buffer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+:root{
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#eef3f2;--card:#fff;--ink:#12302f;--mute:#5b7170;--line:#d3dfdd;--accent:#0f766e;--accent-ink:#fff;--warn:#b45309;--ok:#157347;--track:#dbe6e4;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1b1b;--card:#162827;--ink:#e6f1ef;--mute:#9bb3b0;--line:#2a4140;--accent:#34b3a6;--accent-ink:#062321;--warn:#f0a850;--ok:#5fcf8f;--track:#26403e}}
+:root[data-theme="dark"]{--bg:#0e1b1b;--card:#162827;--ink:#e6f1ef;--mute:#9bb3b0;--line:#2a4140;--accent:#34b3a6;--accent-ink:#062321;--warn:#f0a850;--ok:#5fcf8f;--track:#26403e}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.45 "Atkinson Hyperlegible",system-ui,sans-serif}
+main{max-width:480px;margin:0 auto;padding:16px 16px 40px}
+h1{font-size:26px;margin:8px 0 2px}
+h2{font-size:18px;margin:0 0 10px}
+.sub{color:var(--mute);margin:0 0 16px;font-size:15px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.big{font-size:44px;font-weight:700;line-height:1.1;margin:2px 0 4px}
+.mute{color:var(--mute);font-size:15px}
+button{font:inherit;font-weight:700;border-radius:10px;border:1.5px solid var(--accent);background:transparent;color:var(--accent);padding:10px 14px;min-height:44px;cursor:pointer}
+button.p{background:var(--accent);color:var(--accent-ink)}
+button.s{min-height:38px;padding:6px 10px;font-size:15px}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row>input{flex:1;min-width:110px}
+input[type=number]{font:inherit;width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);min-height:44px}
+label{display:block;font-size:15px;color:var(--mute);margin:10px 0 4px}
+.bar{height:12px;background:var(--track);border-radius:7px;overflow:hidden;margin:10px 0 8px}
+.bar i{display:block;height:100%;background:var(--accent)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1.5px solid var(--line);color:var(--mute);border-radius:20px;padding:3px 10px;font-size:14px}
+.chip.on{border-color:var(--ok);color:var(--ok);font-weight:700}
+.sugg{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:12px}
+.confirm{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:10px}
+.bad{color:var(--warn);font-weight:700}.ok{color:var(--ok);font-weight:700}
+ul{padding-left:18px;margin:0}li{margin:3px 0;font-size:15px;color:var(--mute)}
+.foot{text-align:center;color:var(--mute);font-size:14px;margin-top:20px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Flex Buffer</h1>
+  <p class="sub">Save a little when you earn well. Skip when the day is slow. Nothing is locked, and you can take your money out any time.</p>
+  <div id="app"></div>
+  <p class="foot">Prototype for testing. Data stays on this phone only.</p>
+</main>
+<script>
+var KEY='flexbuffer_v1', S={set:null,buf:0,pays:[],log:[],pend:null}, ui={wd:false,wdAmt:0,msg:'',edit:false};
+try{var raw=localStorage.getItem(KEY);if(raw)S=JSON.parse(raw)}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+function inr(n){return '\u20B9'+Math.round(n).toLocaleString('en-IN')}
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function log(t){S.log.unshift(t);S.log=S.log.slice(0,6)}
+function typical(){
+  if(S.pays.length>=3){var l=S.pays.slice(-7);return l.reduce(function(a,b){return a+b},0)/l.length}
+  return S.set.typical;
+}
+function suggest(earned){
+  var cost=S.set.cost, typ=typical(), surplus=earned-cost, amt=0, why;
+  if(surplus<=0||earned<0.8*typ){why='Slow day: you earned less than usual, so no saving is suggested.'}
+  else if(earned>=1.25*typ){amt=surplus*0.4;why='Strong day: you earned more than usual, so we suggest 40% of what is left after your daily costs.'}
+  else{amt=surplus*0.2;why='Normal day: we suggest 20% of what is left after your daily costs.'}
+  amt=Math.min(Math.round(amt/10)*10,Math.floor(surplus>0?surplus:0));
+  if(amt<=0){amt=0}
+  return {amt:amt,why:why};
+}
+function setup(){
+  var c=+document.getElementById('c').value, t=+document.getElementById('t').value;
+  if(!(c>0)||!(t>0)){ui.msg='Please enter both amounts.';return render()}
+  S.set={cost:c,typical:t};ui.edit=false;ui.msg='';save();render();
+}
+function editSet(){ui.edit=true;render()}
+function logPay(){
+  var e=+document.getElementById('e').value;
+  if(!(e>0)){ui.msg='Enter what you earned.';return render()}
+  var s=suggest(e);S.pend={earned:e,amt:s.amt,why:s.why};S.pays.push(e);
+  log('Earned '+inr(e));ui.msg='';save();render();
+}
+function accept(){S.buf+=S.pend.amt;log('Saved '+inr(S.pend.amt)+' to buffer');S.pend=null;save();render()}
+function custom(){
+  var v=Math.round(+document.getElementById('cu').value);
+  if(!(v>0)){ui.msg='Enter an amount to save.';return render()}
+  S.buf+=v;log('Saved '+inr(v)+' to buffer');S.pend=null;ui.msg='';save();render();
+}
+function skip(){log('Skipped saving. No problem.');S.pend=null;save();render()}
+function askTake(){
+  var v=Math.round(+document.getElementById('tk').value);
+  if(!(v>0)||v>S.buf){ui.msg='Enter an amount up to '+inr(S.buf)+'.';return render()}
+  ui.wd=true;ui.wdAmt=v;ui.msg='';render();
+}
+function doTake(){S.buf-=ui.wdAmt;log('Took out '+inr(ui.wdAmt)+' (instant)');ui.wd=false;save();render()}
+function cancelTake(){ui.wd=false;render()}
+function render(){
+  var h='';
+  if(!S.set||ui.edit){
+    var c=S.set?S.set.cost:'',t=S.set?S.set.typical:'';
+    h+='<section class="card"><h2>Two quick questions</h2>'+
+    '<label for="t">On a normal day, about how much do you earn? (\u20B9)</label><input id="t" type="number" inputmode="numeric" min="1" value="'+t+'" placeholder="1000">'+
+    '<label for="c">How much do you spend on a normal day? Fuel, food, home. (\u20B9)</label><input id="c" type="number" inputmode="numeric" min="1" value="'+c+'" placeholder="600">'+
+    '<p class="mute">We use these to work out how many days your buffer can cover.</p>'+
+    (ui.msg?'<p class="bad" role="status">'+esc(ui.msg)+'</p>':'')+
+    '<button class="p" onclick="setup()">'+(S.set?'Save changes':'Start')+'</button></section>';
+    document.getElementById('app').innerHTML=h;return;
+  }
+  var days=S.buf/S.set.cost, pct=Math.min(100,Math.round(days/14*100));
+  // Log earnings / suggestion
+  h+='<section class="card"><h2>Today\'s earnings</h2>';
+  if(!S.pend){
+    h+='<div class="row"><input id="e" type="number" inputmode="numeric" min="1" placeholder="Amount earned in \u20B9"><button class="p" onclick="logPay()">Add earnings</button></div>';
+    if(ui.msg)h+='<p class="bad" role="status">'+esc(ui.msg)+'</p>';
+  }else{
+    var p=S.pend;
+    h+='<p class="mute">You earned '+inr(p.earned)+'.</p><div class="sugg">';
+    if(p.amt>0){h+='<b>Save '+inr(p.amt)+' for slow days?</b><p class="mute">'+esc(p.why)+'</p>'+
+      '<div class="row"><button class="p" onclick="accept()">Save '+inr(p.amt)+'</button><button onclick="skip()">Skip today</button></div>'}
+    else{h+='<b>Nothing to save today.</b><p class="mute">'+esc(p.why)+'</p><div class="row"><button class="p" onclick="skip()">Okay</button></div>'}
+    h+='<label for="cu">Or save a different amount</label><div class="row"><input id="cu" type="number" inputmode="numeric" min="1" placeholder="Amount in \u20B9"><button onclick="custom()">Save</button></div>';
+    if(ui.msg)h+='<p class="bad" role="status">'+esc(ui.msg)+'</p>';
+    h+='<p class="mute" style="margin-bottom:0">Skipping costs nothing. There are no penalties.</p></div>';
+  }
+  h+='</section>';
+  // Buffer
+  h+='<section class="card"><h2>Your buffer</h2><div class="big">'+inr(S.buf)+'</div>'+
+  '<p style="margin:0"><b>'+(Math.round(days*10)/10)+' days</b> of cover <span class="mute">at '+inr(S.set.cost)+' a day</span></p>'+
+  '<div class="bar" aria-hidden="true"><i style="width:'+pct+'%"></i></div><div class="chips">'+
+  [1,3,7,14].map(function(m){return '<span class="chip'+(days>=m?' on':'')+'">'+(days>=m?'\u2713 ':'')+m+(m===1?' day':' days')+'</span>'}).join('')+'</div>';
+  if(ui.wd){
+    var after=(S.buf-ui.wdAmt)/S.set.cost;
+    h+='<div class="confirm"><b>Take out '+inr(ui.wdAmt)+'?</b><br><span class="mute">This is your buffer for slow days. After this it covers '+(Math.round(after*10)/10)+' days.</span><div class="row" style="margin-top:10px"><button class="p" onclick="doTake()">Yes, take it out</button><button onclick="cancelTake()">Keep it</button></div></div>';
+  }else if(S.buf>0){
+    h+='<label for="tk">Need money now? Take it out instantly. No fees, no waiting.</label><div class="row"><input id="tk" type="number" inputmode="numeric" min="1" placeholder="Amount in \u20B9"><button onclick="askTake()">Take out</button></div>';
+  }
+  h+='</section>';
+  if(S.log.length){h+='<section class="card"><h2>Recent activity</h2><ul>'+S.log.map(function(x){return '<li>'+esc(x)+'</li>'}).join('')+'</ul></section>'}
+  h+='<p style="text-align:center"><button class="s" onclick="editSet()">Change my daily numbers</button></p>';
+  document.getElementById('app').innerHTML=h;
+}
+render();
+</script>
+</body>
+</html>
